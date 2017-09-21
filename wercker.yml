@@ -1,7 +1,7 @@
 box:
     id: $DOCKER_REGISTRY/$IMAGE_NAME
     tag: $APP_TAG
-    registry: $DOCKER_REGISTRY
+    registry: https://registry.hub.docker.com
 
 build:
   steps:
@@ -20,8 +20,8 @@ deploy:
         username: $DOCKER_USERNAME
         password: $DOCKER_PASSWORD
         tag: $WERCKER_MAIN_PIPELINE_STARTED
-        repository: $DOCKER_REPO
-        registry: $DOCKER_REGISTRY
+        repository: $DOCKER_REGISTRY/$IMAGE_NAME
+        registry: https://registry.hub.docker.com
     - script:
         name: deploy
         code: |
