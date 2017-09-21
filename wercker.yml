@@ -18,6 +18,7 @@ deploy:
             recode --version
     - internal/docker-push:
         username: $DOCKER_USERNAME
+        password: $DOCKER_PASSWORD
         tag: $WERCKER_MAIN_PIPELINE_STARTED
         repository: $DOCKER_REGISTRY/$IMAGE_NAME
         registry: https://wcr.io
