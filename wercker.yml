@@ -1,7 +1,7 @@
 box:
     id: $DOCKER_REGISTRY/$IMAGE_NAME
     tag: $APP_TAG
-    registry: https://wcr.io
+    registry: $DOCKER_REGISTRY
 
 build:
   steps:
