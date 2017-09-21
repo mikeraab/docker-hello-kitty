@@ -1,0 +1,83 @@
+box:
+    id: $DOCKER_REGISTRY/$IMAGE_NAME
+    tag: $APP_TAG
+    registry: https://wcr.io
+
+build:
+  steps:
+    - npm-install
+deploy:
+  steps:
+    - script:
+        name: check
+        code: |
+            npm --version
+            node --version
+            jq --version
+            curl --version
+            recode --version
+    - internal/docker-push:
+        username: $DOCKER_USERNAME
+        tag: $WERCKER_MAIN_PIPELINE_STARTED
+        repository: $DOCKER_REGISTRY/$IMAGE_NAME
+        registry: https://wcr.io
+    - script:
+        name: deploy
+        code: |
+                set -ex
+                INSECURE_CURL="-k"
+                # ------------------------------------
+                # Step 1: Trigger deploy via API
+                # ------------------------------------
+                ORIGINAL_CANDIDATE=$(curl ${INSECURE_CURL} -s -XGET -H "Authorization: Bearer ${API_TOKEN}" ${SERVICE_MANAGER}/api/kv/rolling/${APP_NAME}/candidate/id?raw=true)
+                TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                [ -z "$SCALE_AMOUNT" ] && { SCALE_AMOUNT=1; }
+
+                POSTDATA=$(cat <<ENDOFTEMPLATE
+                {
+                  "deployment_id": "${APP_NAME}-${TIMESTAMP}",
+                  "deployment_name": "${APP_FRIENDLY_NAME} ${WERCKER_MAIN_PIPELINE_STARTED}",
+                  "desired_state": 1,
+                  "placement": {
+                    "pool_id": "default"
+                  },
+                  "quantities": {
+                    "app": ${SCALE_AMOUNT}
+                  },
+                  "stack": {
+                    "content": "version: 2\nservices:\n  app:\n    image: \"${DOCKER_REGISTRY}/${IMAGE_NAME}:${WERCKER_MAIN_PIPELINE_STARTED}\"\n    command: ${DOCKER_CMD}\n    ports:\n      - ${EXPOSED_PORT}/tcp\n    environment:\n      - LOADERIO_KEY=${LOADERIO_KEY}\n      - \"occs:availability=per-pool\"\n      - \"occs:scheduler=random\"\n",
+                    "service_id": "app",
+                    "service_name": "${APP_FRIENDLY_NAME} ${WERCKER_MAIN_PIPELINE_STARTED}",
+                    "subtype": "service"
+                  }
+                }
+                ENDOFTEMPLATE
+                )
+
+                curl ${INSECURE_CURL} -XPOST -H "Authorization: Bearer ${API_TOKEN}" -d "${POSTDATA}" ${SERVICE_MANAGER}/api/v2/deployments/
+
+                # ------------------------------------
+                # Step 2: Wait for the deployment to be ready
+                # ------------------------------------
+                TRY=0
+                MAX_TRIES=12
+                WAIT_SECONDS=5
+                HEALTHY=0
+                while [ $TRY -lt $MAX_TRIES ]; do
+                 TRY=$(( $TRY + 1 ))
+                 RESPONSE=$(curl ${INSECURE_CURL} -s -XGET -H "Authorization: Bearer ${API_TOKEN}" ${SERVICE_MANAGER}/api/v2/deployments/${APP_NAME}-${TIMESTAMP} | recode html..ascii | jq ".deployment | .current_state == .desired_state")
+
+                 if [ "$RESPONSE" == "true" ]; then
+                  HEALTHY=1
+                  break
+                 fi
+                 echo "Current and desired state of deployment do not match. ${TRY} of ${MAX_TRIES} tries."
+                 sleep $WAIT_SECONDS
+                done
+
+                if [ $HEALTHY -gt 0 ]; then
+                  echo "Current and desired state of deployment match. Continuing."
+                else
+                  echo "Tried ${MAX_TRIES} times but deployment is not healthy."
+                  exit 1
+                fi
